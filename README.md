@@ -124,23 +124,28 @@ Unlike alternative approaches that attempt to compute skeletal tracking on the h
                   │
                   ▼
  [ Dance Central: Menus / Gameplay ]   <─── Hand Cursor ✅ / Gameplay Scoring ❌
+```
 
+---
 
 ## 🚀 Quick Setup Guide
-1. Hardware & Driver Requirements
-Sensor: Xbox 360 Kinect (VID_045E&PID_02AE).
 
-USB Driver: You must install UsbDk (do not use the official Microsoft Kinect SDK or raw libfreenect drivers for the USB port):
+### 1. Hardware & Driver Requirements
 
-PowerShell
+* **Sensor:** Xbox 360 Kinect (`VID_045E&PID_02AE`).
+* **USB Driver:** You must install [UsbDk](https://github.com/daynix/UsbDk) (do **not** use the official Microsoft Kinect SDK or raw `libfreenect` drivers for the USB port):
+
+```powershell
 winget install --id daynix.UsbDk --exact
+```
 
-Recommended Placement: Mount sensor level at 0° elevation, hip height, with the player standing at least 3 meters (10 ft) back for full-body tracking.
+* **Recommended Placement:** Mount the sensor level at 0° elevation, at hip height, with the player standing at least 3 meters (10 ft) back for full-body tracking.
 
-2. xenia-canary.config.toml Configuration
-Ensure the following keys are set in your .config.toml file:
+### 2. `xenia-canary.config.toml` Configuration
 
-Ini, TOML
+Ensure the following keys are set in your `.config.toml` file:
+
+```toml
 [HID]
 allow_kinect_camera = true
 kinect_use_usbdk = true
@@ -152,52 +157,91 @@ readback_memexport = true
 
 [Memory]
 protect_zero = false
+```
 
-3. Emulator UI Settings
-Open Xenia and navigate to the Console menu.
+### 3. Emulator UI Settings
 
-Check the Kinect Initialized option.
+1. Open Xenia and navigate to the **Console** menu.
+2. Check the **Kinect Initialized** option.
+3. Sign into a local user profile in Xenia before launching the game.
 
-Sign into a local user profile in Xenia before launching the game.
+---
 
-🔍 Test Matrix & Verified Results
-Game Compatibility
+## 🔍 Test Matrix & Verified Results
 
 ### Game Compatibility
 
 | Game | Title ID | Status | Details |
-| :--- | :--- | :--- | :--- |
-| **Dance Central 1** | `545607D3` | 🟡 Partial | Menus OK. Player detection OK. Gameplay score stuck at 0. |
-| **Dance Central 2** | `544E0803` | 🔴 Broken | Black screen on boot (needs further isolation). |
-| **Dance Central 3** | `545408AE` | ⚪ Untested | Pending verification. |
-| **Just Dance 4** | `555308C2` | 🔴 Inactive | Game fails to wake Kinect (`XamNuiIsDeviceReady` evaluates to 0). |
+| :--- | :--- | :---: | :--- |
+| Dance Central 1 | `545607D3` | 🟡 Partial | Menus OK. Player detection OK. Gameplay score stuck at 0. |
+| Dance Central 2 | `544E0803` | 🔴 Broken | Black screen on boot (needs further isolation). |
+| Dance Central 3 | `545408AE` | ⚪ Untested | Pending verification. |
+| Just Dance 4 | `555308C2` | 🔴 Inactive | Game fails to wake Kinect (`XamNuiIsDeviceReady` evaluates to 0). |
 
 ### Impact of GPU Readbacks
 
 | `readback_resolve` | `readback_memexport` | Body Detection | Performance |
-| :---: | :---: | :---: | :---: |
-| **`fast`** | **`true`** | **Yes (Working)** | **40–60 FPS** |
-| `full` | `true` | Yes (Working) | 40–60 FPS |
-| `none` | `true` | No (Player Not Found) | 60 FPS |
-| `fast` | `false` | No (Player Not Found) | 60 FPS |
+| :---: | :---: | :--- | :---: |
+| `fast` | `true` | ✅ Yes (Working) | 40–60 FPS |
+| `full` | `true` | ✅ Yes (Working) | 40–60 FPS |
+| `none` | `true` | ❌ No (Player Not Found) | 60 FPS |
+| `fast` | `false` | ❌ No (Player Not Found) | 60 FPS |
 
-🛠️ The Primary Blocker: Why Doesn't Scoring Work?
-Although physical presence is recognized (gray player silhouette renders, gameplay pauses if you step out of frame, and red boundary alerts trigger if you step too close), move evaluations fail constantly during dance routines.
+> **Key Takeaway:** Internal skeleton calculation relies on GPU compute passes whose results must be flushed back to CPU-accessible guest memory (`memexport` + `resolve`).
 
-Current Active Hypotheses:
-H1 — Invalid/Partial Skeleton (High Priority): Joint data in NUI_SKELETON_FRAME structures might be flagged as inferred or not_tracked due to minor GPU emulation inaccuracies.
+---
 
-H2 — Frozen Frame Timestamps: The game's NUI library computes motion velocity using millisecond deltas between consecutive frames (liTimeStamp). Static or missing timestamps allow menu cursors to work (since positioning is static/absolute), but break fast motion tracking.
+## 🛠️ The Primary Blocker: Why Doesn't Scoring Work?
 
-H3 — Color Buffer Discrepancy: Xenia writes 307,200 bytes (8-bit raw Bayer) while the game allocates 614,400 bytes (YUV 4:2:2). While depth handles skeletal tracking, this discrepancy breaks Freestyle mode photos (black capture).
+Although physical presence is recognized (the gray player silhouette renders, gameplay pauses if you step out of frame, and red boundary alerts trigger if you step too close), move evaluations fail constantly during dance routines.
 
-📑 Diagnostic Patches & Tooling
+### Current Active Hypotheses
+
+* **H1 — Invalid/Partial Skeleton (High Priority):** Joint data in `NUI_SKELETON_FRAME` structures might be flagged as `inferred` or `not_tracked` due to minor GPU emulation inaccuracies.
+* **H2 — Frozen Frame Timestamps:** The game's NUI library computes motion velocity using millisecond deltas between consecutive frames (`liTimeStamp`). Static or missing timestamps allow menu cursors to work (since positioning is static/absolute), but break fast motion tracking.
+* **H3 — Color Buffer Discrepancy:** Xenia writes 307,200 bytes (8-bit raw Bayer) while the game allocates 614,400 bytes (YUV 4:2:2). While depth handles skeletal tracking, this discrepancy breaks Freestyle mode photos (black capture).
+
+---
+
+## 📑 Diagnostic Patches & Tooling
+
 The following diagnostic patches are available in the working tree for debugging:
 
-kinect-diag-2b002.patch: Successfully handles XAM message 0x2B002 to eliminate infinite boot loops.
+| Patch | Purpose |
+| :--- | :--- |
+| `kinect-diag-2b002.patch` | Handles XAM message `0x2B002` to eliminate infinite boot loops. |
+| `kinect-diag-pscam.patch` | Logs depth/color buffer telemetry and frame statistics. |
+| `kinect-diag-gpu.patch` | Measures GPU lock stall durations during memexport operations. |
+| `kinect-diag-skeleton.patch` | In-memory scanner for real-time inspection of guest skeletal structures. |
 
-kinect-diag-pscam.patch: Logs depth/color buffer telemetry and frame statistics.
+### Helpful PowerShell Snippets
 
-kinect-diag-gpu.patch: Measures GPU lock stall durations during memexport operations.
+Quickly switch GPU readback modes:
 
-kinect-diag-skeleton.patch: In-memory scanner for real-time inspection of guest skeletal structures.
+```powershell
+Set-Readback 'fast' 'true'
+```
+
+Filter warnings and errors from log output:
+
+```powershell
+Get-Content xenia.log | Where-Object { $_ -match '^[!w]>' } | Select-Object -Last 30
+```
+
+---
+
+## 🗺️ Roadmap & Next Steps
+
+- [ ] **Step 1:** Run `kinect-diag-skeleton.patch` to verify whether joint positions and frame timestamps advance dynamically during songs.
+- [ ] **Step 2:** Implement Bayer 640x480 → YUV 4:2:2 color format conversion in `xboxkrnl_pscam.cc` to fix Freestyle snapshots.
+- [ ] **Step 3:** Fix `XamNuiIsDeviceReady` return logic to enable sensor initialization in games like Just Dance 4.
+- [ ] **Step 4:** Clean up diagnostic code and break functional additions into small, atomic Pull Requests for upstream Xenia Canary.
+
+---
+
+## 📚 References & Credits
+
+* **Original PR:** [xenia-canary/#1274](https://github.com/xenia-canary/xenia-canary/pull/1274) by [@knuckleslee](https://github.com/knuckleslee).
+* **Decompilation Reference:** [rjkiv/dc3-decomp](https://github.com/rjkiv/dc3-decomp) (used for reverse engineering Dance Central's NUI library integration).
+* **USB Driver:** [UsbDk](https://github.com/daynix/UsbDk) by Daynix.
+
