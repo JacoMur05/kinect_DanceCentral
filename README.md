@@ -73,3 +73,131 @@ of emulation of modern devices and operating systems. **It is not for enabling
 illegal activity**. All information is obtained via reverse engineering of
 legally purchased devices and games and information made public on the internet
 (you'd be surprised what's indexed on Google...).
+
+## My Info 
+# 🕺 Xenia Canary — Xbox 360 Kinect Integration (Dance Central)
+
+[![Status](https://img.shields.io/badge/Status-Experimental-orange.svg)]()
+[![Platform](https://img.shields.io/badge/Platform-Windows%2010%2F11-blue.svg)]()
+[![Xenia](https://img.shields.io/badge/Emulator-Xenia%20Canary-purple.svg)]()
+
+This repository/branch contains ongoing work to integrate physical **Xbox 360 Kinect (V1)** hardware directly into **Xenia Canary**, with a primary focus on game preservation and playability for the *Dance Central* series.
+
+> ⚠️ **Current Project Status:** The physical sensor successfully streams depth and color data, the game detects player silhouettes, and **menus are fully navigable using hand gestures**. However, during active song gameplay, the score remains stuck at `0` and all dance moves are evaluated as failed (current primary blocker).
+
+---
+
+## 📌 TL;DR / Quick Summary
+
+* **What works:**
+  * Direct USB communication using `UsbDk`.
+  * Stable Depth + Color streaming at 30 FPS (~6,100 frames in continuous stress tests).
+  * Player body detection (silhouette rendering) and proximity alerts (framing warnings).
+  * Full menu navigation using hand gestures.
+  * Solid performance (40–60 FPS during gameplay).
+* **What doesn't work yet:**
+  * **Gameplay scoring:** Move evaluation fails during songs (all move feedback flashes red).
+  * **Freestyle Photo:** Captures a pitch-black image due to a color format mismatch (Bayer vs. YUV).
+  * **Dance Central 2:** Currently hangs on a black screen on startup.
+* **Codebase Origin:** Based on `@knuckleslee`'s `kinect-v1-stage1` branch (commit `2a5ae4c43`).
+
+---
+
+## 🏗️ Architecture: How Data Flows
+
+Unlike alternative approaches that attempt to compute skeletal tracking on the host PC using external libraries, **this implementation feeds raw sensor streams directly to the emulated game environment**. The game's embedded Xbox 360 Kinect NUI library processes the skeletal tracking internally, exactly as original hardware did.
+
+```text
+  [ Kinect Physical Hardware (USB) ]
+                  │
+                  ▼
+         [ UsbDk / libusb ]
+                  │
+                  ▼
+  [ Xenia Host (PsCamDeviceRequest) ]  <─── Captures Depth/Color (30 fps)
+                  │
+                  ▼
+  [ Guest Emulated System Memory ]
+                  │
+                  ▼
+ [ In-Game Embedded NUI Library ]     <─── (Calculates skeleton using GPU Readbacks)
+                  │
+                  ▼
+ [ Dance Central: Menus / Gameplay ]   <─── Hand Cursor ✅ / Gameplay Scoring ❌
+
+
+## 🚀 Quick Setup Guide
+1. Hardware & Driver Requirements
+Sensor: Xbox 360 Kinect (VID_045E&PID_02AE).
+
+USB Driver: You must install UsbDk (do not use the official Microsoft Kinect SDK or raw libfreenect drivers for the USB port):
+
+PowerShell
+winget install --id daynix.UsbDk --exact
+
+Recommended Placement: Mount sensor level at 0° elevation, hip height, with the player standing at least 3 meters (10 ft) back for full-body tracking.
+
+2. xenia-canary.config.toml Configuration
+Ensure the following keys are set in your .config.toml file:
+
+Ini, TOML
+[HID]
+allow_kinect_camera = true
+kinect_use_usbdk = true
+
+[GPU]
+# BOTH readbacks are strictly required for body tracking
+readback_resolve = "fast"
+readback_memexport = true
+
+[Memory]
+protect_zero = false
+
+3. Emulator UI Settings
+Open Xenia and navigate to the Console menu.
+
+Check the Kinect Initialized option.
+
+Sign into a local user profile in Xenia before launching the game.
+
+🔍 Test Matrix & Verified Results
+Game Compatibility
+
+### Game Compatibility
+
+| Game | Title ID | Status | Details |
+| :--- | :--- | :--- | :--- |
+| **Dance Central 1** | `545607D3` | 🟡 Partial | Menus OK. Player detection OK. Gameplay score stuck at 0. |
+| **Dance Central 2** | `544E0803` | 🔴 Broken | Black screen on boot (needs further isolation). |
+| **Dance Central 3** | `545408AE` | ⚪ Untested | Pending verification. |
+| **Just Dance 4** | `555308C2` | 🔴 Inactive | Game fails to wake Kinect (`XamNuiIsDeviceReady` evaluates to 0). |
+
+### Impact of GPU Readbacks
+
+| `readback_resolve` | `readback_memexport` | Body Detection | Performance |
+| :---: | :---: | :---: | :---: |
+| **`fast`** | **`true`** | **Yes (Working)** | **40–60 FPS** |
+| `full` | `true` | Yes (Working) | 40–60 FPS |
+| `none` | `true` | No (Player Not Found) | 60 FPS |
+| `fast` | `false` | No (Player Not Found) | 60 FPS |
+
+🛠️ The Primary Blocker: Why Doesn't Scoring Work?
+Although physical presence is recognized (gray player silhouette renders, gameplay pauses if you step out of frame, and red boundary alerts trigger if you step too close), move evaluations fail constantly during dance routines.
+
+Current Active Hypotheses:
+H1 — Invalid/Partial Skeleton (High Priority): Joint data in NUI_SKELETON_FRAME structures might be flagged as inferred or not_tracked due to minor GPU emulation inaccuracies.
+
+H2 — Frozen Frame Timestamps: The game's NUI library computes motion velocity using millisecond deltas between consecutive frames (liTimeStamp). Static or missing timestamps allow menu cursors to work (since positioning is static/absolute), but break fast motion tracking.
+
+H3 — Color Buffer Discrepancy: Xenia writes 307,200 bytes (8-bit raw Bayer) while the game allocates 614,400 bytes (YUV 4:2:2). While depth handles skeletal tracking, this discrepancy breaks Freestyle mode photos (black capture).
+
+📑 Diagnostic Patches & Tooling
+The following diagnostic patches are available in the working tree for debugging:
+
+kinect-diag-2b002.patch: Successfully handles XAM message 0x2B002 to eliminate infinite boot loops.
+
+kinect-diag-pscam.patch: Logs depth/color buffer telemetry and frame statistics.
+
+kinect-diag-gpu.patch: Measures GPU lock stall durations during memexport operations.
+
+kinect-diag-skeleton.patch: In-memory scanner for real-time inspection of guest skeletal structures.
