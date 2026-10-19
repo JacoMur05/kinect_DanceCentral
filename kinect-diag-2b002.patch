@@ -1,0 +1,80 @@
+diff --git a/src/xenia/kernel/xam/apps/xam_app.cc b/src/xenia/kernel/xam/apps/xam_app.cc
+index 3c744e3..73476c2 100644
+--- a/src/xenia/kernel/xam/apps/xam_app.cc
++++ b/src/xenia/kernel/xam/apps/xam_app.cc
+@@ -9,6 +9,8 @@
+ 
+ #include "xenia/kernel/xam/apps/xam_app.h"
+ 
++#include <atomic>
++
+ #include "xenia/base/logging.h"
+ #include "xenia/kernel/kernel_state.h"
+ #include "xenia/kernel/xam/xam_content_device.h"
+@@ -150,6 +152,24 @@ X_HRESULT XamApp::DispatchMessageSync(uint32_t message, uint32_t buffer_ptr,
+              data->deployment_type_ptr.get(), data->overlapped_ptr.get());
+       return X_E_SUCCESS;
+     }
++    case 0x0002B002: {
++      // EXPERIMENT: Dance Central (545607D3) sends this Kinect message in a
++      // tight loop alongside XamNuiCameraRememberFloor. The buffer layout is
++      // unknown, so log the first calls and report success to see whether the
++      // loop ends.
++      static std::atomic<uint32_t> calls{0};
++      if (calls.fetch_add(1) < 8 && buffer_ptr) {
++        auto word = [&](uint32_t i) {
++          return xe::load_and_swap<uint32_t>(buffer + 4 * i);
++        };
++        XELOGI(
++            "XamApp: Kinect msg 2B002 buffer={:08X} length={:08X} data={:08X} "
++            "{:08X} {:08X} {:08X} {:08X} {:08X} {:08X} {:08X}",
++            buffer_ptr, buffer_length, word(0), word(1), word(2), word(3),
++            word(4), word(5), word(6), word(7));
++      }
++      return X_E_SUCCESS;
++    }
+     case 0x0002B003: {
+       // Games used in:
+       // 4D5309C9
+diff --git a/src/xenia/kernel/xam/xam_nui.cc b/src/xenia/kernel/xam/xam_nui.cc
+index c5f46cd..65096b4 100644
+--- a/src/xenia/kernel/xam/xam_nui.cc
++++ b/src/xenia/kernel/xam/xam_nui.cc
+@@ -7,6 +7,7 @@
+  ******************************************************************************
+  */
+ 
++#include <atomic>
+ #include <cstring>
+ 
+ #include "xenia/base/logging.h"
+@@ -500,6 +501,29 @@ void XamNuiPlayerEngagementUpdate_entry(qword_t unk1, unknown_t unk2,
+ }
+ DECLARE_XAM_EXPORT1(XamNuiPlayerEngagementUpdate, kNone, kStub);
+ 
++// DIAGNOSTIC (Dance Central 545607D3): the title calls these tilt/floor
++// functions. They were unimplemented and returned 0, so returning success here
++// changes nothing; the first calls log their raw arguments so the meaning of
++// each can be worked out.
++#define XE_NUI_DIAG_STUB(name)                                              \
++  dword_result_t name##_entry(dword_t a1, dword_t a2, dword_t a3) {         \
++    static std::atomic<uint32_t> calls{0};                                  \
++    if (calls.fetch_add(1) < 6) {                                           \
++      XELOGI("Kinect diag: " #name "({:08X}, {:08X}, {:08X})",              \
++             static_cast<uint32_t>(a1), static_cast<uint32_t>(a2),          \
++             static_cast<uint32_t>(a3));                                    \
++    }                                                                       \
++    return X_ERROR_SUCCESS;                                                 \
++  }                                                                         \
++  DECLARE_XAM_EXPORT1(name, kNone, kStub);
++
++XE_NUI_DIAG_STUB(XamNuiCameraTiltSetCallback)
++XE_NUI_DIAG_STUB(XamNuiCameraRememberFloor)
++XE_NUI_DIAG_STUB(XamNuiCameraElevationSetAngle)
++XE_NUI_DIAG_STUB(XamNuiCameraElevationStopMovement)
++XE_NUI_DIAG_STUB(XamNuiCameraTiltReportStatus)
++#undef XE_NUI_DIAG_STUB
++
+ }  // namespace xam
+ }  // namespace kernel
+ }  // namespace xe

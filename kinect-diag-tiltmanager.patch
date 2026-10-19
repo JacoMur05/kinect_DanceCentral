@@ -1,0 +1,69 @@
+diff --git a/src/xenia/kernel/xam/xam_nui.cc b/src/xenia/kernel/xam/xam_nui.cc
+index ea93961..5649feb 100644
+--- a/src/xenia/kernel/xam/xam_nui.cc
++++ b/src/xenia/kernel/xam/xam_nui.cc
+@@ -557,6 +557,9 @@ dword_result_t XamNuiCameraTiltSetCallback_entry(dword_t callback, dword_t conte
+     XELOGI("Kinect diag: callback code @{:08X}: {}",
+            static_cast<uint32_t>(callback),
+            NuiDiagGuestWords(callback, 64));
++    XELOGI("Kinect diag: callback code part 2 @{:08X}: {}",
++           static_cast<uint32_t>(callback) + 0x100,
++           NuiDiagGuestWords(static_cast<uint32_t>(callback) + 0x100, 160));
+   }
+   return X_ERROR_SUCCESS;
+ }
+diff --git a/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc b/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc
+index 84a4ce7..aa6c94a 100644
+--- a/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc
++++ b/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc
+@@ -405,6 +405,33 @@ class CameraDevice {
+            static_cast<uint32_t>(code), slot, count, words);
+   }
+ 
++  // DIAGNOSTIC: the state of the title's own tilt manager, read from its
++  // global data (address taken from the disassembly of Dance Central's tilt
++  // callback, 545607D3 only). Logged when it changes.
++  void LogTiltManager() {
++    constexpr uint32_t kBase = 0x82969E30;
++    if (!IsGuestRange(kBase, 0x1F0)) {
++      return;
++    }
++    auto word = [&](uint32_t offset) {
++      return static_cast<uint32_t>(*Guest<xe::be<uint32_t>>(kBase + offset));
++    };
++    char text[256];
++    std::snprintf(text, sizeof(text),
++                  "+50=%08X +18C=%08X +1A0=%08X | +60..84=%08X %08X %08X %08X "
++                  "%08X %08X %08X %08X %08X %08X | +1D4..1EC=%08X %08X %08X "
++                  "%08X %08X %08X %08X",
++                  word(0x50), word(0x18C), word(0x1A0), word(0x60), word(0x64),
++                  word(0x68), word(0x6C), word(0x70), word(0x74), word(0x78),
++                  word(0x7C), word(0x80), word(0x84), word(0x1D4), word(0x1D8),
++                  word(0x1DC), word(0x1E0), word(0x1E4), word(0x1E8),
++                  word(0x1EC));
++    if (tilt_manager_log_ != text || tilt_manager_logs_++ < 3) {
++      tilt_manager_log_ = text;
++      XELOGI("Kinect diag: tilt manager {}", text);
++    }
++  }
++
+   // DIAGNOSTIC: raw depth statistics of the frame just written to the title.
+   void LogDepthStats(uint32_t buffer_ptr) {
+     const auto* depth = Guest<xe::be<uint16_t>>(buffer_ptr);
+@@ -597,6 +624,7 @@ class CameraDevice {
+       ++depth_delivered_;
+       if (depth_delivered_ <= 3 || depth_delivered_ % 90 == 0) {
+         LogDepthStats(buffer);
++        LogTiltManager();
+       }
+     } else {
+       ++color_delivered_;
+@@ -702,6 +730,8 @@ class CameraDevice {
+   uint32_t depth_delivered_ = 0;
+   uint32_t color_delivered_ = 0;
+   uint32_t diag_invalid_ = 0;
++  std::string tilt_manager_log_;
++  uint32_t tilt_manager_logs_ = 0;
+ };
+ 
+ xe_mutex g_camera_device_mutex;

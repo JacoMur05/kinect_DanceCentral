@@ -1,0 +1,4 @@
+C:/Users/jacom/Documents/Dc/xenia-canary/third_party/snappy/CMakeFiles/snappy.dir
+C:/Users/jacom/Documents/Dc/xenia-canary/third_party/snappy/CMakeFiles/INSTALL.dir
+C:/Users/jacom/Documents/Dc/xenia-canary/third_party/snappy/CMakeFiles/ALL_BUILD.dir
+C:/Users/jacom/Documents/Dc/xenia-canary/third_party/snappy/CMakeFiles/ZERO_CHECK.dir

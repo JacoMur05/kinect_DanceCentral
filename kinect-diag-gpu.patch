@@ -1,0 +1,61 @@
+diff --git a/src/xenia/gpu/d3d12/d3d12_command_processor.cc b/src/xenia/gpu/d3d12/d3d12_command_processor.cc
+index 67961e1..ddf7f97 100644
+--- a/src/xenia/gpu/d3d12/d3d12_command_processor.cc
++++ b/src/xenia/gpu/d3d12/d3d12_command_processor.cc
+@@ -8,6 +8,7 @@
+  */
+ 
+ #include "xenia/gpu/d3d12/d3d12_command_processor.h"
++#include <chrono>
+ #include <cstring>
+ #include "xenia/apu/audio_system.h"
+ #include "xenia/base/assert.h"
+@@ -3236,7 +3237,47 @@ bool D3D12CommandProcessor::IssueDraw(xenos::PrimitiveType primitive_type,
+                 memexport_range.base_address_dwords << 2, memexport_range_size);
+             readback_buffer_offset += memexport_range_size;
+           }
+-          if (AwaitAllQueueOperationsCompletion()) {
++          // DIAGNOSTIC: time the full GPU wait done for every memexport
++          // readback, and log a summary every 3 seconds.
++          const auto diag_wait_start = std::chrono::steady_clock::now();
++          const bool diag_awaited = AwaitAllQueueOperationsCompletion();
++          {
++            static uint64_t diag_draws = 0;
++            static uint64_t diag_bytes = 0;
++            static uint64_t diag_wait_us = 0;
++            static uint64_t diag_max_wait_us = 0;
++            static std::chrono::steady_clock::time_point diag_window_start =
++                diag_wait_start;
++            const auto diag_now = std::chrono::steady_clock::now();
++            const uint64_t wait_us = static_cast<uint64_t>(
++                std::chrono::duration_cast<std::chrono::microseconds>(
++                    diag_now - diag_wait_start)
++                    .count());
++            ++diag_draws;
++            diag_bytes += memexport_total_size;
++            diag_wait_us += wait_us;
++            if (wait_us > diag_max_wait_us) {
++              diag_max_wait_us = wait_us;
++            }
++            const uint64_t window_us = static_cast<uint64_t>(
++                std::chrono::duration_cast<std::chrono::microseconds>(
++                    diag_now - diag_window_start)
++                    .count());
++            if (window_us >= 3000000) {
++              XELOGI(
++                  "GPU diag: memexport readbacks in {} ms: {} draws, {} KB "
++                  "read, {} ms waiting ({}% of the time), longest wait {} us",
++                  window_us / 1000, diag_draws, diag_bytes / 1024,
++                  diag_wait_us / 1000, diag_wait_us * 100 / window_us,
++                  diag_max_wait_us);
++              diag_draws = 0;
++              diag_bytes = 0;
++              diag_wait_us = 0;
++              diag_max_wait_us = 0;
++              diag_window_start = diag_now;
++            }
++          }
++          if (diag_awaited) {
+             D3D12_RANGE readback_range;
+             readback_range.Begin = 0;
+             readback_range.End = memexport_total_size;

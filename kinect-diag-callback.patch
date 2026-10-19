@@ -1,0 +1,79 @@
+diff --git a/src/xenia/kernel/xam/xam_nui.cc b/src/xenia/kernel/xam/xam_nui.cc
+index 6d59441..ea93961 100644
+--- a/src/xenia/kernel/xam/xam_nui.cc
++++ b/src/xenia/kernel/xam/xam_nui.cc
+@@ -8,7 +8,9 @@
+  */
+ 
+ #include <atomic>
++#include <cstdio>
+ #include <cstring>
++#include <string>
+ 
+ #include "xenia/base/logging.h"
+ #include "xenia/base/memory.h"
+@@ -526,6 +528,54 @@ void XamNuiPlayerEngagementUpdate_entry(qword_t unk1, unknown_t unk2,
+ }
+ DECLARE_XAM_EXPORT1(XamNuiPlayerEngagementUpdate, kNone, kStub);
+ 
++// DIAGNOSTIC: raw big-endian words of guest memory, for reading what the title
++// passes to the tilt functions (and the title's own callback code).
++static std::string NuiDiagGuestWords(uint32_t address, uint32_t count) {
++  Memory* memory = kernel_state()->memory();
++  if (!address || !memory->LookupHeap(address) ||
++      !memory->LookupHeap(address + count * 4 - 1)) {
++    return "(not readable)";
++  }
++  const uint8_t* data = memory->TranslateVirtual<const uint8_t*>(address);
++  std::string text;
++  for (uint32_t i = 0; i < count; ++i) {
++    char word[16];
++    std::snprintf(word, sizeof(word), "%08X ",
++                  static_cast<unsigned>(xe::load_and_swap<uint32_t>(data + i * 4)));
++    text += word;
++  }
++  return text;
++}
++
++dword_result_t XamNuiCameraTiltSetCallback_entry(dword_t callback, dword_t context,
++                                                 dword_t flags) {
++  static std::atomic<uint32_t> calls{0};
++  if (calls.fetch_add(1) < 2) {
++    XELOGI("Kinect diag: XamNuiCameraTiltSetCallback(fn={:08X}, ctx={:08X}, {:08X})",
++           static_cast<uint32_t>(callback), static_cast<uint32_t>(context),
++           static_cast<uint32_t>(flags));
++    XELOGI("Kinect diag: callback code @{:08X}: {}",
++           static_cast<uint32_t>(callback),
++           NuiDiagGuestWords(callback, 64));
++  }
++  return X_ERROR_SUCCESS;
++}
++DECLARE_XAM_EXPORT1(XamNuiCameraTiltSetCallback, kNone, kStub);
++
++dword_result_t XamNuiCameraElevationSetAngle_entry(dword_t angle, dword_t pointer,
++                                                   dword_t size) {
++  static std::atomic<uint32_t> calls{0};
++  if (calls.fetch_add(1) < 3) {
++    XELOGI("Kinect diag: XamNuiCameraElevationSetAngle(angle={}, ptr={:08X}, {:08X})",
++           static_cast<int32_t>(angle), static_cast<uint32_t>(pointer),
++           static_cast<uint32_t>(size));
++    XELOGI("Kinect diag: SetAngle ptr words @{:08X}: {}",
++           static_cast<uint32_t>(pointer), NuiDiagGuestWords(pointer, 12));
++  }
++  return X_ERROR_SUCCESS;
++}
++DECLARE_XAM_EXPORT1(XamNuiCameraElevationSetAngle, kNone, kStub);
++
+ // DIAGNOSTIC (Dance Central 545607D3): the title calls these tilt/floor
+ // functions. They were unimplemented and returned 0, so returning success here
+ // changes nothing; the first calls log their raw arguments so the meaning of
+@@ -542,9 +592,7 @@ DECLARE_XAM_EXPORT1(XamNuiPlayerEngagementUpdate, kNone, kStub);
+   }                                                                         \
+   DECLARE_XAM_EXPORT1(name, kNone, kStub);
+ 
+-XE_NUI_DIAG_STUB(XamNuiCameraTiltSetCallback)
+ XE_NUI_DIAG_STUB(XamNuiCameraRememberFloor)
+-XE_NUI_DIAG_STUB(XamNuiCameraElevationSetAngle)
+ XE_NUI_DIAG_STUB(XamNuiCameraElevationStopMovement)
+ XE_NUI_DIAG_STUB(XamNuiCameraTiltReportStatus)
+ #undef XE_NUI_DIAG_STUB

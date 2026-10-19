@@ -1,0 +1,157 @@
+diff --git a/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc b/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc
+index 6d75db9..84a4ce7 100644
+--- a/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc
++++ b/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc
+@@ -15,10 +15,12 @@
+ #include <atomic>
+ #include <chrono>
+ #include <cstdint>
++#include <cstdio>
+ #include <cstring>
+ #include <deque>
+ #include <memory>
+ #include <mutex>
++#include <string>
+ #include <vector>
+ 
+ #include "xenia/base/cvar.h"
+@@ -244,6 +246,7 @@ class CameraDevice {
+     if (completion == kNoCompletionRoutine) {
+       completion = 0;
+     }
++    LogRequest(code, request_ptr);
+ 
+     if (!camera_) {
+       if (code == CameraRequestCode::kGetState) {
+@@ -262,6 +265,12 @@ class CameraDevice {
+       if (!completion ||
+           (stream != CameraStream::kDepth && stream != CameraStream::kColor) ||
+           (counter_ptr && !IsGuestRange(counter_ptr, sizeof(uint32_t)))) {
++        if (diag_failures_++ < 20) {
++          XELOGE(
++              "PsCam diag: read-frame request rejected: completion={:08X} "
++              "stream={} counter_ptr={:08X}",
++              completion, static_cast<uint32_t>(stream), counter_ptr);
++        }
+         return X_STATUS_INVALID_PARAMETER;
+       }
+       PendingRequest pending;
+@@ -279,6 +288,10 @@ class CameraDevice {
+ 
+     uint32_t bytes = 0;
+     const X_STATUS status = Handle(code, request_ptr, bytes);
++    if (!XSUCCEEDED(status) && diag_failures_++ < 20) {
++      XELOGE("PsCam diag: code {} returned {:08X}",
++             static_cast<uint32_t>(code), static_cast<uint32_t>(status));
++    }
+     PendingRequest pending;
+     pending.request_ptr = request_ptr;
+     pending.completion = completion;
+@@ -360,6 +373,62 @@ class CameraDevice {
+     return std::max(size, sizeof(X_PSCAM_REQUEST));
+   }
+ 
++  // DIAGNOSTIC: logs the first three requests of each code (and of each frame
++  // stream) with their raw words, so the fields the title fills in are visible.
++  void LogRequest(CameraRequestCode code, uint32_t request_ptr) {
++    uint32_t slot = static_cast<uint32_t>(code);
++    if (code == CameraRequestCode::kReadFrame) {
++      slot = 48 + (static_cast<uint32_t>(
++                       Guest<X_PSCAM_READ_FRAME_REQUEST>(request_ptr)->stream) &
++                   7);
++    }
++    if (slot >= xe::countof(request_counts_)) {
++      return;
++    }
++    const uint32_t count = ++request_counts_[slot];
++    if (count > 3) {
++      return;
++    }
++    uint32_t size = 0x40;
++    while (size > sizeof(X_PSCAM_REQUEST) && !IsGuestRange(request_ptr, size)) {
++      size -= 4;
++    }
++    std::string words;
++    for (uint32_t i = 0; i < size / 4; ++i) {
++      char text[16];
++      std::snprintf(text, sizeof(text), "%08X ",
++                    static_cast<unsigned>(xe::load_and_swap<uint32_t>(
++                        Guest<uint8_t>(request_ptr) + i * 4)));
++      words += text;
++    }
++    XELOGI("PsCam diag: code={} slot={} #{} words: {}",
++           static_cast<uint32_t>(code), slot, count, words);
++  }
++
++  // DIAGNOSTIC: raw depth statistics of the frame just written to the title.
++  void LogDepthStats(uint32_t buffer_ptr) {
++    const auto* depth = Guest<xe::be<uint16_t>>(buffer_ptr);
++    const uint32_t pixels = kFrameWidth * kFrameHeight;
++    uint32_t valid = 0;
++    uint16_t min_raw = 0xFFFF;
++    uint16_t max_raw = 0;
++    for (uint32_t i = 0; i < pixels; ++i) {
++      const uint16_t raw = depth[i];
++      if (raw) {
++        ++valid;
++        min_raw = std::min(min_raw, raw);
++        max_raw = std::max(max_raw, raw);
++      }
++    }
++    XELOGI(
++        "PsCam diag: depth frame #{} valid_pixels={} ({}%) raw_min={} "
++        "raw_max={} reads_requested depth={} color={}",
++        depth_delivered_, valid, valid * 100 / pixels, min_raw, max_raw,
++        request_counts_[48 + static_cast<uint32_t>(CameraStream::kDepth)].load(),
++        request_counts_[48 + static_cast<uint32_t>(CameraStream::kColor)]
++            .load());
++  }
++
+   // Wakes the worker for a new request or camera frame.
+   void Notify() { work_event_->Set(); }
+ 
+@@ -503,6 +572,13 @@ class CameraDevice {
+     const uint32_t buffer = request->buffer_ptr;
+     if (request->buffer_size < frame_bytes ||
+         !IsGuestRange(buffer, frame_bytes)) {
++      if (diag_invalid_++ < 10) {
++        XELOGE(
++            "PsCam diag: {} frame request rejected: buffer_size={} needed={} "
++            "buffer={:08X}",
++            depth ? "depth" : "color",
++            static_cast<uint32_t>(request->buffer_size), frame_bytes, buffer);
++      }
+       done.status = X_STATUS_INVALID_PARAMETER;
+       Complete(done);
+       return true;
+@@ -517,6 +593,17 @@ class CameraDevice {
+     if (counter_ptr) {
+       *Guest<xe::be<uint32_t>>(counter_ptr) = sequence;
+     }
++    if (depth) {
++      ++depth_delivered_;
++      if (depth_delivered_ <= 3 || depth_delivered_ % 90 == 0) {
++        LogDepthStats(buffer);
++      }
++    } else {
++      ++color_delivered_;
++      if (color_delivered_ <= 3 || color_delivered_ % 90 == 0) {
++        XELOGI("PsCam diag: color frames delivered={}", color_delivered_);
++      }
++    }
+     done.bytes = frame_bytes;
+     Complete(done);
+     return true;
+@@ -609,6 +696,12 @@ class CameraDevice {
+   uint8_t requested_generation_ = 0;
+   std::atomic<uint8_t> settings_generation_ = 0;
+   std::vector<uint8_t> frame_;
++  // DIAGNOSTIC counters.
++  std::atomic<uint32_t> request_counts_[64] = {};
++  std::atomic<uint32_t> diag_failures_{0};
++  uint32_t depth_delivered_ = 0;
++  uint32_t color_delivered_ = 0;
++  uint32_t diag_invalid_ = 0;
+ };
+ 
+ xe_mutex g_camera_device_mutex;

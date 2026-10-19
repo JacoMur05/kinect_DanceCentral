@@ -1,0 +1,45 @@
+diff --git a/src/xenia/kernel/xam/xam_nui.cc b/src/xenia/kernel/xam/xam_nui.cc
+index 65096b4..6d59441 100644
+--- a/src/xenia/kernel/xam/xam_nui.cc
++++ b/src/xenia/kernel/xam/xam_nui.cc
+@@ -79,7 +79,28 @@ dword_result_t XamNuiGetDeviceStatus_entry(
+ DECLARE_XAM_EXPORT1(XamNuiGetDeviceStatus, kNone, kStub);
+ 
+ dword_result_t XamUserNuiGetUserIndex_entry(unknown_t unk, lpdword_t index) {
+-  return X_E_NO_SUCH_USER;
++  // EXPERIMENT (Dance Central 545607D3 imports this): it always failed with
++  // X_E_NO_SUCH_USER, so the title may never bind a tracked skeleton to a
++  // signed-in user. Log the arguments and bind to the first signed-in profile,
++  // like XamUserNuiGetUserIndexForSignin does.
++  static std::atomic<uint32_t> calls{0};
++  const uint32_t call = calls.fetch_add(1);
++  uint32_t result = X_E_NO_SUCH_USER;
++  if (index) {
++    for (uint32_t i = 0; i < XUserMaxUserCount; i++) {
++      if (kernel_state()->xam_state()->GetUserProfile(i)) {
++        *index = i;
++        result = X_E_SUCCESS;
++        break;
++      }
++    }
++  }
++  if (call < 6) {
++    XELOGI("Kinect diag: XamUserNuiGetUserIndex(unk={:08X}) -> {:08X} index={}",
++           static_cast<uint32_t>(unk), result,
++           index ? static_cast<uint32_t>(*index) : 0xFFFFFFFFu);
++  }
++  return result;
+ }
+ DECLARE_XAM_EXPORT1(XamUserNuiGetUserIndex, kNone, kStub);
+ 
+@@ -162,6 +183,10 @@ dword_result_t XamNuiCameraElevationGetAngle_entry(lpqword_t unk1,
+   /* Notes:
+      - Xam 12611 does not show what unk1 is used for (Ghidra)
+   */
++  static std::atomic<uint32_t> calls{0};
++  if (calls.fetch_add(1) < 6) {
++    XELOGI("Kinect diag: XamNuiCameraElevationGetAngle called");
++  }
+   X_NUI_TILT_STATUS tilt_status = {};
+   tilt_status.size = sizeof(tilt_status);
+   tilt_status.signature = make_fourcc("XtSs");

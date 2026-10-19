@@ -1,0 +1,51 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="18.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClCompile Include="C:\Users\jacom\Documents\Dc\xenia-canary\third_party\snappy\snappy-c.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\jacom\Documents\Dc\xenia-canary\third_party\snappy\snappy-sinksource.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\jacom\Documents\Dc\xenia-canary\third_party\snappy\snappy-stubs-internal.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\jacom\Documents\Dc\xenia-canary\third_party\snappy\snappy.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="C:\Users\jacom\Documents\Dc\xenia-canary\third_party\snappy\snappy-internal.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\jacom\Documents\Dc\xenia-canary\third_party\snappy\snappy-stubs-internal.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\jacom\Documents\Dc\xenia-canary\third_party\snappy\config.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\jacom\Documents\Dc\xenia-canary\third_party\snappy\snappy-c.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\jacom\Documents\Dc\xenia-canary\third_party\snappy\snappy-sinksource.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\jacom\Documents\Dc\xenia-canary\third_party\snappy\snappy.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\jacom\Documents\Dc\xenia-canary\third_party\snappy\snappy-stubs-public.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <CustomBuild Include="C:\Users\jacom\Documents\Dc\xenia-canary\third_party\snappy\CMakeLists.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="Header Files">
+      <UniqueIdentifier>{5EBD4DA4-ECE5-3F91-A3F7-9C613F1A81E0}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files">
+      <UniqueIdentifier>{1E2C7A49-4FB5-3CF4-B9F8-0E13F0599D84}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>
